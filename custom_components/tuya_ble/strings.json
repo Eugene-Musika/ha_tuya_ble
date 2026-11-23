@@ -1,15 +1,23 @@
 {
   "config": {
     "abort": {
+      "account_removed": "The Tuya account was removed.",
+      "already_configured": "This device or account is already configured.",
+      "already_in_progress": "Setup for this device is already in progress.",
+      "device_added": "The device was added to the Tuya account.",
       "no_unconfigured_devices": "No unconfigured devices found."
     },
     "error": {
       "device_not_registered": "Device is not registered in Tuya cloud",
+      "device_unavailable": "The selected device is no longer available.",
       "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
       "login_error": "Login error ({code}): {msg}"
     },
     "flow_title": "{name}",
     "step": {
+      "discovery_confirm": {
+        "description": "Add {name} to its Tuya account?"
+      },
       "device": {
         "data": {
           "address": "Tuya BLE device"
@@ -25,6 +33,30 @@
           "username": "Account"
         },
         "description": "Tuya BLE requires obtaining encryption key from Tuya cloud. Almost all devices only need to access the cloud once during setup.\n\nRefer to documentation of Tuya integration to retrive the cloud credentials https://www.home-assistant.io/integrations/tuya/\n\nEnter your Tuya credentials."
+      }
+    }
+  },
+  "config_subentries": {
+    "device": {
+      "entry_type": "Device",
+      "initiate_flow": {
+        "user": "Add device"
+      },
+      "abort": {
+        "already_configured": "This device is already configured.",
+        "no_unconfigured_devices": "No unconfigured devices found."
+      },
+      "error": {
+        "device_not_registered": "Device is not registered in Tuya cloud",
+        "device_unavailable": "The selected device is no longer available."
+      },
+      "step": {
+        "user": {
+          "data": {
+            "address": "Tuya BLE device"
+          },
+          "description": "Select an unconfigured device registered in this Tuya account."
+        }
       }
     }
   },
@@ -256,9 +288,12 @@
   },
   "options": {
     "error": {
+      "account_already_configured": "This Tuya account is already configured in another entry.",
+      "devices_changed": "The account's devices changed during the update. Try again.",
       "device_not_registered": "Device is not registered in Tuya cloud",
       "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
-      "login_error": "Login error ({code}): {msg}"
+      "login_error": "Login error ({code}): {msg}",
+      "reload_failed": "The login was saved, but the entry could not be reloaded. Check the logs and reload it manually."
     },
     "step": {
       "login": {
@@ -269,7 +304,7 @@
           "password": "[%key:common::config_flow::data::password%]",
           "username": "Account"
         },
-        "description": "Refer to documentation of Tuya integration to retrive the cloud credentials https://www.home-assistant.io/integrations/tuya/\n\nEnter your Tuya credentials."
+        "description": "Enter the Tuya account credentials. After a successful login, credentials for all devices in the account are refreshed.\n\nRefer to the Tuya integration documentation: https://www.home-assistant.io/integrations/tuya/"
       }
     }
   }

@@ -8,6 +8,8 @@ _Inspired by code of [@redphx](https://github.com/redphx/poc-tuya-ble-fingerbot)
 
 ## Installation
 
+Home Assistant 2025.3.0 or later is required.
+
 Place the `custom_components` folder in your configuration directory (or add its contents to an existing `custom_components` folder).
 
 ## Usage
@@ -15,6 +17,24 @@ Place the `custom_components` folder in your configuration directory (or add its
 After adding to Home Assistant integration should discover all supported Bluetooth devices, or you can add discoverable devices manually.
 
 The integration works locally, but connection to Tuya BLE device requires device ID and encryption key from Tuya IOT cloud. It could be obtained using the same credentials as in the previous official Tuya integration. To obtain the credentials, please refer to official Tuya integration [documentation](https://web.archive.org/web/20231228044831/https://www.home-assistant.io/integrations/tuya/) [[1]](https://github.com/home-assistant/home-assistant.io/blob/a4e6d4819f1db584cc66ba2082508d3978f83f7e/source/_integrations/tuya.markdown)
+
+Each Tuya account has one integration entry, with its devices listed inside it.
+Add a discovered device by confirming its discovery, or use **Add device** on
+the account to select a nearby device. A device registered to an existing
+account does not require the login to be entered again.
+
+### Upgrading from a per-device version
+
+Back up Home Assistant before upgrading. Enabled device entries with complete
+Tuya logins are automatically merged into account entries, preserving entity
+IDs, history, device names, and areas. Entries without a complete login remain
+separate. Disabled entries remain separate until they are enabled and Home
+Assistant restarts; an enabled entry also waits if its account is disabled.
+
+If conflicting device-registry records prevent migration, the affected entries
+remain unchanged and an error is logged. Resolve the conflict and restart Home
+Assistant to retry. Downgrading is not supported; restore the backup to return
+to an earlier version.
 
 ## Supported devices list
 

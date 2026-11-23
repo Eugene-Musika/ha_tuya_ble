@@ -100,4 +100,31 @@ and this project adheres to [Semantic Versioning].
 
 ### Added
 
-- Added support for Mini Smart Switch vs4ksbpax2dwwm6a
+- Added support for Mini Smart Switch vs4ksbpax2dwwm6a (category `tdq`): relay switch, countdown, power-on behavior and switch type.
+- The account entry keeps the Tuya login even after its last device is removed.
+
+### Changed
+
+- The relay switch is the device's main entity and uses the device name.
+
+### Fixed
+
+- Credentials are found by cloud MAC (including MAC−1) when the advertisement UUID can't be decoded.
+- Number entities (e.g. countdown) no longer fail with `AttributeError: min_value`.
+- The relay reports its full state after connecting or restarting Home Assistant, and entities restore their last state until the device responds.
+- Saved Tuya login options with an integer auth type are handled correctly.
+
+## [1.0.0]
+
+### Changed
+
+- Tuya BLE devices are grouped under one entry per account. Existing entries
+  with complete logins are migrated automatically when enabled and safe to move.
+- Disabled entries and conflicting device-registry records remain unchanged
+  until migration can be retried safely.
+- Home Assistant 2025.3.0 or later is required.
+
+### Upgrade
+
+- Back up Home Assistant before upgrading. Downgrading is not supported;
+  restore the backup to return to an earlier version.
