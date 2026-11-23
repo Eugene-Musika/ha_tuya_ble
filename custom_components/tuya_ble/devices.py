@@ -1,18 +1,22 @@
 """The Tuya BLE integration."""
 from __future__ import annotations
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
 
 from typing import Any
 import logging
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS, CONF_DEVICE_ID
 
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.entity import (
     DeviceInfo,
+    Entity,
     EntityDescription,
     generate_entity_id,
 )
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import (
@@ -371,6 +375,32 @@ class TuyaBLEData:
     product: TuyaBLEProductInfo
     manager: HASSTuyaBLEDeviceManager
     coordinator: TuyaBLEPassiveCoordinator
+
+
+@dataclass
+class TuyaBLEAccountData:
+    """Runtime data for an account and its devices."""
+
+    manager: HASSTuyaBLEDeviceManager
+    devices: dict[str | None, TuyaBLEData]
+    configured_subentries: dict[str, str] = field(default_factory=dict)
+
+
+@callback
+def async_add_device_entities(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+    factory: Callable[[TuyaBLEData], Iterable[Entity]],
+) -> None:
+    """Add entities for each device under its config subentry."""
+    account: TuyaBLEAccountData = hass.data[DOMAIN][entry.entry_id]
+    for subentry_id, data in account.devices.items():
+        entities = factory(data)
+        if subentry_id is None:
+            async_add_entities(entities)
+        else:
+            async_add_entities(entities, config_subentry_id=subentry_id)
 
 
 @dataclass

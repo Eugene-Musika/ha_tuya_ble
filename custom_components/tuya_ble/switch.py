@@ -13,12 +13,16 @@ from homeassistant.components.switch import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import DOMAIN
-from .devices import TuyaBLEData, TuyaBLEEntity, TuyaBLEProductInfo
+from .devices import (
+    TuyaBLEData,
+    TuyaBLEEntity,
+    TuyaBLEProductInfo,
+    async_add_device_entities,
+)
 from .tuya_ble import TuyaBLEDataPointType, TuyaBLEDevice
 
 _LOGGER = logging.getLogger(__name__)
@@ -505,23 +509,25 @@ class TuyaBLESwitch(TuyaBLEEntity, SwitchEntity, RestoreEntity):
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Tuya BLE sensors."""
-    data: TuyaBLEData = hass.data[DOMAIN][entry.entry_id]
-    mappings = get_mapping_by_device(data.device)
-    entities: list[TuyaBLESwitch] = []
-    for mapping in mappings:
-        if mapping.force_add or data.device.datapoints.has_id(
-            mapping.dp_id, mapping.dp_type
-        ):
-            entities.append(
-                TuyaBLESwitch(
-                    hass,
-                    data.coordinator,
-                    data.device,
-                    data.product,
-                    mapping,
+    def create_entities(data: TuyaBLEData) -> list[TuyaBLESwitch]:
+        mappings = get_mapping_by_device(data.device)
+        entities: list[TuyaBLESwitch] = []
+        for mapping in mappings:
+            if mapping.force_add or data.device.datapoints.has_id(
+                mapping.dp_id, mapping.dp_type
+            ):
+                entities.append(
+                    TuyaBLESwitch(
+                        hass,
+                        data.coordinator,
+                        data.device,
+                        data.product,
+                        mapping,
+                    )
                 )
-            )
-    async_add_entities(entities)
+        return entities
+
+    async_add_device_entities(hass, entry, async_add_entities, create_entities)

@@ -21,7 +21,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import EntityCategory
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.components.bluetooth.passive_update_coordinator import PassiveBluetoothDataUpdateCoordinator
 from .const import (
@@ -33,9 +33,14 @@ from .const import (
     BATTERY_NOT_CHARGING,
     CO2_LEVEL_ALARM,
     CO2_LEVEL_NORMAL,
-    DOMAIN,
 )
-from .devices import TuyaBLEData, TuyaBLEEntity, TuyaBLEProductInfo, TuyaBLEPassiveCoordinator
+from .devices import (
+    TuyaBLEData,
+    TuyaBLEEntity,
+    TuyaBLEProductInfo,
+    TuyaBLEPassiveCoordinator,
+    async_add_device_entities,
+)
 from .tuya_ble import TuyaBLEDataPointType, TuyaBLEDevice
 _LOGGER = logging.getLogger(__name__)
 SIGNAL_STRENGTH_DP_ID = -1
@@ -536,42 +541,46 @@ class TuyaBLELastUnlockSensor(SensorEntity, TuyaBLEEntity):
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Tuya BLE sensors."""
-    data: TuyaBLEData = hass.data[DOMAIN][entry.entry_id]
-    mappings = get_mapping_by_device(data.device)
-    entities: list[TuyaBLESensor|TuyaBLELastUnlockSensor] = [
-        TuyaBLESensor(
-            hass,
-            data.coordinator,
-            data.device,
-            data.product,
-            rssi_mapping,
-        )
-    ]
+    def create_entities(
+        data: TuyaBLEData,
+    ) -> list[TuyaBLESensor | TuyaBLELastUnlockSensor]:
+        mappings = get_mapping_by_device(data.device)
+        entities: list[TuyaBLESensor | TuyaBLELastUnlockSensor] = [
+            TuyaBLESensor(
+                hass,
+                data.coordinator,
+                data.device,
+                data.product,
+                rssi_mapping,
+            )
+        ]
 
-    for mapping in mappings:
-        if isinstance(mapping, TuyaBLELastUnlockSensorMapping):
-            entities.append(
-                TuyaBLELastUnlockSensor(
-                    hass,
-                    data.coordinator,
-                    data.device,
-                    data.product,
-                    mapping,
+        for mapping in mappings:
+            if isinstance(mapping, TuyaBLELastUnlockSensorMapping):
+                entities.append(
+                    TuyaBLELastUnlockSensor(
+                        hass,
+                        data.coordinator,
+                        data.device,
+                        data.product,
+                        mapping,
+                    )
                 )
-            )
-        elif mapping.force_add or data.device.datapoints.has_id(
-            mapping.dp_id, mapping.dp_type
-        ):
-            entities.append(
-                TuyaBLESensor(
-                    hass,
-                    data.coordinator,
-                    data.device,
-                    data.product,
-                    mapping,
+            elif mapping.force_add or data.device.datapoints.has_id(
+                mapping.dp_id, mapping.dp_type
+            ):
+                entities.append(
+                    TuyaBLESensor(
+                        hass,
+                        data.coordinator,
+                        data.device,
+                        data.product,
+                        mapping,
+                    )
                 )
-            )
-    async_add_entities(entities)
+        return entities
+
+    async_add_device_entities(hass, entry, async_add_entities, create_entities)

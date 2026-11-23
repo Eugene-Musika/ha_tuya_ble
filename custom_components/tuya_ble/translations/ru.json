@@ -1,15 +1,23 @@
 {
     "config": {
         "abort": {
+            "account_removed": "Аккаунт Tuya был удалён.",
+            "already_configured": "Это устройство или аккаунт уже настроены.",
+            "already_in_progress": "Настройка этого устройства уже выполняется.",
+            "device_added": "Устройство добавлено в аккаунт Tuya.",
             "no_unconfigured_devices": "Не найдено не настроенных устройств."
         },
         "error": {
             "device_not_registered": "Устройство не зарегистрировано в облаке Tuya",
+            "device_unavailable": "Выбранное устройство больше недоступно.",
             "invalid_auth": "Неверная аутентификация",
             "login_error": "Ошибка входа ({code}): {msg}"
         },
         "flow_title": "{name}",
         "step": {
+            "discovery_confirm": {
+                "description": "Добавить {name} в его аккаунт Tuya?"
+            },
             "device": {
                 "data": {
                     "address": "Tuya BLE устройство"
@@ -25,6 +33,30 @@
                     "username": "Аккаунт"
                 },
                 "description": "Tuya BLE требует получения ключа шифрования из облака Tuya. Почти всем устройствам требуется доступ к облаку только один раз при настройке.\n\nСмотрите документацию по интеграции Tuya для получения облачных учетных данных https://www.home-assistant.io/integrations/tuya/\n\nВведите свои учетные данные Tuya."
+            }
+        }
+    },
+    "config_subentries": {
+        "device": {
+            "entry_type": "Устройство",
+            "initiate_flow": {
+                "user": "Добавить устройство"
+            },
+            "abort": {
+                "already_configured": "Это устройство уже настроено.",
+                "no_unconfigured_devices": "Не найдено не настроенных устройств."
+            },
+            "error": {
+                "device_not_registered": "Устройство не зарегистрировано в облаке Tuya",
+                "device_unavailable": "Выбранное устройство больше недоступно."
+            },
+            "step": {
+                "user": {
+                    "data": {
+                        "address": "Устройство Tuya BLE"
+                    },
+                    "description": "Выберите не настроенное устройство, зарегистрированное в этом аккаунте Tuya."
+                }
             }
         }
     },
@@ -317,9 +349,12 @@
     },
     "options": {
         "error": {
+            "account_already_configured": "Этот аккаунт Tuya уже настроен в другой записи.",
+            "devices_changed": "Устройства аккаунта изменились во время обновления. Попробуйте ещё раз.",
             "device_not_registered": "Устройство не зарегистрировано в облаке Tuya",
             "invalid_auth": "Неверная аутентификация",
-            "login_error": "Ошибка входа ({code}): {msg}"
+            "login_error": "Ошибка входа ({code}): {msg}",
+            "reload_failed": "Учётные данные сохранены, но не удалось перезагрузить запись. Проверьте журнал и перезагрузите её вручную."
         },
         "step": {
             "login": {
@@ -330,7 +365,7 @@
                     "password": "Пароль",
                     "username": "Аккаунт"
                 },
-                "description": "Смотрите документацию по интеграции Tuya для получения облачных учетных данных https://www.home-assistant.io/integrations/tuya/\n\nВведите свои учетные данные Tuya."
+                "description": "Введите учётные данные аккаунта Tuya. После успешного входа данные всех устройств аккаунта будут обновлены.\n\nДокументация интеграции Tuya: https://www.home-assistant.io/integrations/tuya/"
             }
         }
     }

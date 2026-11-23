@@ -13,17 +13,22 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.components.bluetooth.passive_update_coordinator import PassiveBluetoothDataUpdateCoordinator
 
 from .const import (
-    DOMAIN,
     FINGERBOT_MODE_PROGRAM,
     FINGERBOT_MODE_PUSH,
     FINGERBOT_MODE_SWITCH,
 )
-from .devices import TuyaBLEData, TuyaBLEEntity, TuyaBLEProductInfo, TuyaBLEPassiveCoordinator
+from .devices import (
+    TuyaBLEData,
+    TuyaBLEEntity,
+    TuyaBLEProductInfo,
+    TuyaBLEPassiveCoordinator,
+    async_add_device_entities,
+)
 from .tuya_ble import TuyaBLEDataPointType, TuyaBLEDevice
 
 _LOGGER = logging.getLogger(__name__)
@@ -362,22 +367,24 @@ class TuyaBLESelect(TuyaBLEEntity, SelectEntity, RestoreEntity):
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Tuya BLE sensors."""
-    data: TuyaBLEData = hass.data[DOMAIN][entry.entry_id]
-    mappings = get_mapping_by_device(data.device)
-    entities: list[TuyaBLESelect] = []
-    for mapping in mappings:
-        if (
-            mapping.force_add or
-            data.device.datapoints.has_id(mapping.dp_id, mapping.dp_type)
-        ):
-            entities.append(TuyaBLESelect(
-                hass,
-                data.coordinator,
-                data.device,
-                data.product,
-                mapping,
-            ))
-    async_add_entities(entities)
+    def create_entities(data: TuyaBLEData) -> list[TuyaBLESelect]:
+        mappings = get_mapping_by_device(data.device)
+        entities: list[TuyaBLESelect] = []
+        for mapping in mappings:
+            if (
+                mapping.force_add or
+                data.device.datapoints.has_id(mapping.dp_id, mapping.dp_type)
+            ):
+                entities.append(TuyaBLESelect(
+                    hass,
+                    data.coordinator,
+                    data.device,
+                    data.product,
+                    mapping,
+                ))
+        return entities
+
+    async_add_device_entities(hass, entry, async_add_entities, create_entities)

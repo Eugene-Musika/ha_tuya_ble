@@ -20,11 +20,16 @@ from homeassistant.components.climate.const import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import DOMAIN
-from .devices import TuyaBLEData, TuyaBLEEntity, TuyaBLEProductInfo, TuyaBLEPassiveCoordinator
+from .devices import (
+    TuyaBLEData,
+    TuyaBLEEntity,
+    TuyaBLEProductInfo,
+    TuyaBLEPassiveCoordinator,
+    async_add_device_entities,
+)
 from .tuya_ble import TuyaBLEDataPoint, TuyaBLEDataPointType, TuyaBLEDevice
 
 _LOGGER = logging.getLogger(__name__)
@@ -344,20 +349,22 @@ class TuyaBLEClimate(TuyaBLEEntity, ClimateEntity):
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Tuya BLE sensors."""
-    data: TuyaBLEData = hass.data[DOMAIN][entry.entry_id]
-    mappings = get_mapping_by_device(data.device)
-    entities: list[TuyaBLEClimate] = []
-    for mapping in mappings:
-        entities.append(
-            TuyaBLEClimate(
-                hass,
-                data.coordinator,
-                data.device,
-                data.product,
-                mapping,
+    def create_entities(data: TuyaBLEData) -> list[TuyaBLEClimate]:
+        mappings = get_mapping_by_device(data.device)
+        entities: list[TuyaBLEClimate] = []
+        for mapping in mappings:
+            entities.append(
+                TuyaBLEClimate(
+                    hass,
+                    data.coordinator,
+                    data.device,
+                    data.product,
+                    mapping,
+                )
             )
-        )
-    async_add_entities(entities)
+        return entities
+
+    async_add_device_entities(hass, entry, async_add_entities, create_entities)
