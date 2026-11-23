@@ -16,6 +16,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo, EntityDescription
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
@@ -53,6 +54,7 @@ from .const import (
     CONF_APP_TYPE,
     CONF_ENDPOINT,
     SMARTLIFE_APP,
+    TUYA_RESPONSE_CODE,
     TUYA_RESPONSE_RESULT,
     TUYA_RESPONSE_SUCCESS,
 )
@@ -91,6 +93,52 @@ CONF_TUYA_DEVICE_KEYS = [
 
 _cache: dict[str, TuyaCloudCacheItem] = {}
 
+_LOGIN_STORE_VERSION = 1
+_LOGIN_STORE_KEY = f"{DOMAIN}.login"
+
+
+def _normalize_mac(mac: str) -> str | None:
+    digits = mac.replace(":", "").replace("-", "").upper()
+    if len(digits) != 12:
+        return None
+    try:
+        int(digits, 16)
+    except ValueError:
+        return None
+    return ":".join(digits[i : i + 2] for i in range(0, 12, 2))
+
+
+def _shift_mac(mac: str, delta: int) -> str | None:
+    normalized = _normalize_mac(mac)
+    if normalized is None:
+        return None
+    value = int(normalized.replace(":", ""), 16) + delta
+    if not 0 <= value < (1 << 48):
+        return None
+    return _normalize_mac(f"{value:012X}")
+
+
+def _find_credentials(
+    credentials: dict[str, dict[str, Any]],
+    address: str,
+    uuid: str | None,
+) -> dict[str, Any] | None:
+    """Match by exact MAC, then by advertised uuid, then by MAC minus one."""
+    address = _normalize_mac(address) or address
+    result = credentials.get(address)
+    if result is not None:
+        return result
+    if uuid:
+        for item in credentials.values():
+            if item.get(CONF_UUID) == uuid:
+                _LOGGER.debug("Matched %s by advertised uuid", address)
+                return {**item, CONF_ADDRESS: address}
+    previous = _shift_mac(address, -1)
+    if previous and (result := credentials.get(previous)) is not None:
+        _LOGGER.debug("Matched %s by cloud MAC %s", address, previous)
+        return {**result, CONF_ADDRESS: address}
+    return None
+
 
 class HASSTuyaBLEDeviceManager(AbstaractTuyaBLEDeviceManager):
     """Cloud connected manager of the Tuya BLE devices credentials."""
@@ -99,6 +147,7 @@ class HASSTuyaBLEDeviceManager(AbstaractTuyaBLEDeviceManager):
         assert hass is not None
         self._hass = hass
         self._data = data
+        self._saved_login: dict[str, Any] | None = None
 
     @staticmethod
     def _is_login_success(response: dict[Any, Any]) -> bool:
@@ -130,11 +179,18 @@ class HASSTuyaBLEDeviceManager(AbstaractTuyaBLEDeviceManager):
         if len(data) == 0:
             return {}
 
+        auth_type = data.get(CONF_AUTH_TYPE)
+        # Saved entries store the enum value; tuya_iot compares with AuthType members.
+        if isinstance(auth_type, int) and not isinstance(auth_type, AuthType):
+            try:
+                auth_type = AuthType(auth_type)
+            except ValueError:
+                pass
         api = TuyaOpenAPI(
             endpoint=data.get(CONF_ENDPOINT, ""),
             access_id=data.get(CONF_ACCESS_ID, ""),
             access_secret=data.get(CONF_ACCESS_SECRET, ""),
-            auth_type=data.get(CONF_AUTH_TYPE, ""),
+            auth_type=auth_type if auth_type is not None else "",
         )
         api.set_dev_channel("hass")
 
@@ -146,6 +202,14 @@ class HASSTuyaBLEDeviceManager(AbstaractTuyaBLEDeviceManager):
             data.get(CONF_APP_TYPE, ""),
         )
 
+        if not self._is_login_success(response):
+            _LOGGER.debug(
+                "Tuya cloud login failed (auth_type %s, app_type %s): %s %s",
+                data.get(CONF_AUTH_TYPE),
+                data.get(CONF_APP_TYPE),
+                response.get("code"),
+                response.get("msg"),
+            )
         if self._is_login_success(response):
             _LOGGER.debug("Successful login for %s", data[CONF_USERNAME])
             if add_to_cache:
@@ -159,8 +223,22 @@ class HASSTuyaBLEDeviceManager(AbstaractTuyaBLEDeviceManager):
                     cache_item.login = data
                 else:
                     _cache[cache_key] = TuyaCloudCacheItem(api, data, {})
+                await self._save_login(data)
 
         return response
+
+    def _login_store(self) -> Store:
+        return Store(self._hass, _LOGIN_STORE_VERSION, _LOGIN_STORE_KEY)
+
+    async def _save_login(self, data: dict[str, Any]) -> None:
+        # Keeps the login available after the last device entry is removed.
+        login = {key: data.get(key) for key in CONF_TUYA_LOGIN_KEYS}
+        if self._has_login(login) and login != await self._load_login():
+            await self._login_store().async_save(login)
+
+    async def _load_login(self) -> dict[str, Any] | None:
+        login = await self._login_store().async_load()
+        return login if isinstance(login, dict) and self._has_login(login) else None
 
     def _check_login(self) -> bool:
         cache_key = self._get_cache_key(self._data)
@@ -185,11 +263,10 @@ class HASSTuyaBLEDeviceManager(AbstaractTuyaBLEDeviceManager):
                     fi_response_result = fi_response.get(TUYA_RESPONSE_RESULT)
                     if fi_response_result and len(fi_response_result) > 0:
                         factory_info = fi_response_result[0]
+                        mac = None
                         if factory_info and (TUYA_FACTORY_INFO_MAC in factory_info):
-                            mac = ":".join(
-                                factory_info[TUYA_FACTORY_INFO_MAC][i : i + 2]
-                                for i in range(0, 12, 2)
-                            ).upper()
+                            mac = _normalize_mac(factory_info[TUYA_FACTORY_INFO_MAC])
+                        if mac:
                             item.credentials[mac] = {
                                 CONF_ADDRESS: mac,
                                 CONF_UUID: device.get("uuid"),
@@ -201,6 +278,11 @@ class HASSTuyaBLEDeviceManager(AbstaractTuyaBLEDeviceManager):
                                 CONF_PRODUCT_MODEL: device.get("model"),
                                 CONF_PRODUCT_NAME: device.get("product_name"),
                             }
+        else:
+            _LOGGER.debug(
+                "Tuya cloud device list request failed (code %s)",
+                devices_response.get(TUYA_RESPONSE_CODE),
+            )
 
     async def build_cache(self) -> None:
         global _cache
@@ -209,6 +291,8 @@ class HASSTuyaBLEDeviceManager(AbstaractTuyaBLEDeviceManager):
         for config_entry in tuya_config_entries:
             data.clear()
             data.update(config_entry.data)
+            if not self._has_login(data):
+                continue
             key = self._get_cache_key(data)
             item = _cache.get(key)
             if item is None or len(item.credentials) == 0:
@@ -217,10 +301,17 @@ class HASSTuyaBLEDeviceManager(AbstaractTuyaBLEDeviceManager):
                     if item and len(item.credentials) == 0:
                         await self._fill_cache_item(item)
 
-        ble_config_entries = self._hass.config_entries.async_entries(DOMAIN)
-        for config_entry in ble_config_entries:
-            data.clear()
-            data.update(config_entry.options)
+        logins = [
+            config_entry.options
+            for config_entry in self._hass.config_entries.async_entries(DOMAIN)
+        ]
+        if saved_login := await self._load_login():
+            self._saved_login = saved_login
+            logins.append(saved_login)
+        for login in logins:
+            data = dict(login)
+            if not self._has_login(data):
+                continue
             key = self._get_cache_key(data)
             item = _cache.get(key)
             if item is None or len(item.credentials) == 0:
@@ -233,13 +324,23 @@ class HASSTuyaBLEDeviceManager(AbstaractTuyaBLEDeviceManager):
         global _cache
         for cache_item in _cache.values():
             self._data.update(cache_item.login)
-            break
+            return
+        # No successful cloud login yet: prefill the form from a saved entry.
+        for config_entry in self._hass.config_entries.async_entries(DOMAIN):
+            if self._has_login(config_entry.options):
+                self._data.update(
+                    {key: config_entry.options[key] for key in CONF_TUYA_LOGIN_KEYS}
+                )
+                return
+        if self._saved_login:
+            self._data.update(self._saved_login)
 
     async def get_device_credentials(
         self,
         address: str,
         force_update: bool = False,
         save_data: bool = False,
+        uuid: str | None = None,
     ) -> TuyaBLEDeviceCredentials | None:
         """Get credentials of the Tuya BLE device."""
         global _cache
@@ -255,7 +356,7 @@ class HASSTuyaBLEDeviceManager(AbstaractTuyaBLEDeviceManager):
                 cache_key = self._get_cache_key(self._data)
             else:
                 for key in _cache.keys():
-                    if _cache[key].credentials.get(address) is not None:
+                    if _find_credentials(_cache[key].credentials, address, uuid) is not None:
                         cache_key = key
                         break
             if cache_key:
@@ -265,9 +366,19 @@ class HASSTuyaBLEDeviceManager(AbstaractTuyaBLEDeviceManager):
                     item = _cache.get(cache_key)
                     if item:
                         await self._fill_cache_item(item)
+            elif not item.credentials:
+                await self._fill_cache_item(item)
 
             if item:
-                credentials = item.credentials.get(address)
+                credentials = _find_credentials(item.credentials, address, uuid)
+
+            if credentials is None:
+                _LOGGER.debug(
+                    "No credentials for %s (uuid %s); cached devices: %s",
+                    address,
+                    uuid,
+                    sorted(item.credentials) if item else "no cloud login",
+                )
 
         if credentials:
             result = TuyaBLEDeviceCredentials(

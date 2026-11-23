@@ -507,6 +507,23 @@ mapping: dict[str, TuyaBLECategoryNumberMapping] = {
             ],
         },
     ),
+    "tdq": TuyaBLECategoryNumberMapping(
+        products={
+            "vs4ksbpax2dwwm6a": [  # Mini Smart Switch
+                TuyaBLENumberMapping(
+                    dp_id=9,
+                    description=NumberEntityDescription(
+                        key="countdown",
+                        icon="mdi:timer",
+                        native_max_value=86400,
+                        native_min_value=0,
+                        native_unit_of_measurement=UnitOfTime.SECONDS,
+                        native_step=1,
+                    ),
+                ),
+            ],
+        },
+    ),
 }
 
 
@@ -522,7 +539,7 @@ def get_mapping_by_device(device: TuyaBLEDevice) -> list[TuyaBLENumberMapping]:
     return result
 
 
-class TuyaBLENumber(TuyaBLEEntity):
+class TuyaBLENumber(TuyaBLEEntity, BaseNumberEntity, RestoreEntity):
     """Representation of a Tuya BLE Number."""
 
     _attr_entity_category = None
@@ -556,6 +573,11 @@ class TuyaBLENumber(TuyaBLEEntity):
         datapoint = self._device.datapoints[self._mapping.dp_id]
         if datapoint and isinstance(datapoint.value, (int, float)):
             return datapoint.value / self._mapping.coefficient
+        if self._restored_state is not None:
+            try:
+                return float(self._restored_state)
+            except ValueError:
+                pass
         return self._mapping.description.native_min_value
 
     async def async_set_native_value(self, value: float) -> None:

@@ -9,7 +9,6 @@ and this project adheres to [Semantic Versioning].
 
 - Initial release
 
-
 ## [0.1.1] - 2023-04-26
 
 ### Added
@@ -23,7 +22,6 @@ and this project adheres to [Semantic Versioning].
 ### Changed
 
 - Updated strings.json
-
 
 ## [0.1.2] - 2023-04-26
 
@@ -97,3 +95,9 @@ and this project adheres to [Semantic Versioning].
 ### Fixed
 
 - Fixed HA 2025.12.0 compatibility issue
+
+## [0.2.0] - 2026-11-23
+
+### Added
+
+- Added support for Mini Smart Switch vs4ksbpax2dwwm6a

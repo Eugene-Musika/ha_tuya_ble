@@ -73,6 +73,9 @@
       },
       "countdown_duration_z2": {
         "name": "Irrigation duration - Zone 2"
+      },
+      "countdown": {
+        "name": "Countdown"
       }
     },
     "select": {
@@ -96,6 +99,22 @@
       },
       "beep_volume": {
           "name": "Lock Volume"
+      },
+      "power_on_behavior": {
+        "name": "Power-on behavior",
+        "state": {
+          "off": "Off",
+          "on": "On",
+          "memory": "Restore previous state"
+        }
+      },
+      "switch_type": {
+        "name": "Switch type",
+        "state": {
+          "flip": "Rocker (toggle on flip)",
+          "sync": "Rocker (follow position)",
+          "button": "Push button"
+        }
       }
     },
     "binary_sensor": {

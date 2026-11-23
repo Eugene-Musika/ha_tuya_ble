@@ -46,6 +46,29 @@ _LOGGER = logging.getLogger(__name__)
 BLEAK_EXCEPTIONS = (*BLEAK_RETRY_EXCEPTIONS, OSError)
 
 
+def decode_advertisement_uuid(
+    service_data: dict[str, bytes] | None,
+    manufacturer_data: dict[int, bytes] | None,
+) -> str | None:
+    """Decode the device uuid from Tuya BLE advertisement data."""
+    raw_product_id: bytes | None = None
+    if service_data:
+        data = service_data.get(SERVICE_UUID)
+        if data and len(data) > 1 and data[0] == 0:
+            raw_product_id = data[1:]
+    if not raw_product_id or not manufacturer_data:
+        return None
+    data = manufacturer_data.get(MANUFACTURER_DATA_ID)
+    if not data or len(data) <= 6:
+        return None
+    key = hashlib.md5(raw_product_id).digest()
+    cipher = AES.new(key, AES.MODE_CBC, key)
+    try:
+        return cipher.decrypt(data[6:]).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+
 class TuyaBLEDataPoint:
     def __init__(
         self,
@@ -297,7 +320,7 @@ class TuyaBLEDevice:
         if self._device_info is None:
             if self._device_manager:
                 self._device_info = await self._device_manager.get_device_credentials(
-                    self._ble_device.address, False
+                    self._ble_device.address, False, uuid=getattr(self, "_uuid", None)
                 )
             if self._device_info:
                 self._local_key = self._device_info.local_key[:6].encode()
@@ -1151,6 +1174,15 @@ class TuyaBLEDevice:
                 self._parse_datapoints_v3(time.time(), flags, data, pos)
                 data = pack(">HBB", dp_seq_num, flags, 0)
                 asyncio.create_task(self._send_response(code, data, seq_num))
+
+            case _:
+                if response_to == 0:
+                    _LOGGER.debug(
+                        "%s: Unhandled message %s, data %s",
+                        self.address,
+                        code.name,
+                        data.hex(),
+                    )
 
         if response_to != 0:
             future = self._input_expected_responses.pop(response_to, None)

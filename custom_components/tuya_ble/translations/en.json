@@ -81,6 +81,9 @@
             },
             "up_position": {
                 "name": "Up position"
+            },
+            "countdown": {
+                "name": "Countdown"
             }
         },
         "select": {
@@ -129,6 +132,22 @@
                 "state": {
                     "function1": "Off",
                     "function2": "On"
+                }
+            },
+            "power_on_behavior": {
+                "name": "Power-on behavior",
+                "state": {
+                    "off": "Off",
+                    "on": "On",
+                    "memory": "Restore previous state"
+                }
+            },
+            "switch_type": {
+                "name": "Switch type",
+                "state": {
+                    "flip": "Rocker (toggle on flip)",
+                    "sync": "Rocker (follow position)",
+                    "button": "Push button"
                 }
             }
         },

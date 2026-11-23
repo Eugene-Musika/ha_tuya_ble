@@ -11,10 +11,11 @@ from .manager import (
     AbstaractTuyaBLEDeviceManager,
     TuyaBLEDeviceCredentials,
 )
-from .tuya_ble import TuyaBLEDataPoint, TuyaBLEDevice 
+from .tuya_ble import TuyaBLEDataPoint, TuyaBLEDevice, decode_advertisement_uuid
 
 __all__ = [
     "AbstaractTuyaBLEDeviceManager",
+    "decode_advertisement_uuid",
     "TuyaBLEDataPoint",
     "TuyaBLEDataPointType",
     "TuyaBLEDevice",
