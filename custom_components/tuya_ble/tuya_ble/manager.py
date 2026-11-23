@@ -42,8 +42,13 @@ class AbstaractTuyaBLEDeviceManager(ABC):
         address: str,
         force_update: bool = False,
         save_data: bool = False,
+        uuid: str | None = None,
     ) -> TuyaBLEDeviceCredentials | None:
-        """Get credentials of the Tuya BLE device."""
+        """Get credentials of the Tuya BLE device.
+
+        The device is matched by exact address, then by advertised uuid,
+        then by address minus one (Wi-Fi+BLE modules report the Wi-Fi MAC).
+        """
         pass
 
     @classmethod

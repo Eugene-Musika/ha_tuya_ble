@@ -14,6 +14,7 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.components.bluetooth.passive_update_coordinator import PassiveBluetoothDataUpdateCoordinator
 
 from .const import (
@@ -254,6 +255,41 @@ mapping: dict[str, TuyaBLECategorySelectMapping] = {
             ],
         },
     ),
+    "tdq": TuyaBLECategorySelectMapping(
+        products={
+            "vs4ksbpax2dwwm6a": [  # Mini Smart Switch
+                # Option order must match the thing-model enum range (index-based)
+                TuyaBLESelectMapping(
+                    dp_id=38,
+                    description=SelectEntityDescription(
+                        key="power_on_behavior",
+                        icon="mdi:power-settings",
+                        options=[
+                            "off",
+                            "on",
+                            "memory",
+                        ],
+                        entity_category=EntityCategory.CONFIG,
+                    ),
+                    dp_type=TuyaBLEDataPointType.DT_ENUM,
+                ),
+                TuyaBLESelectMapping(
+                    dp_id=47,
+                    description=SelectEntityDescription(
+                        key="switch_type",
+                        icon="mdi:light-switch",
+                        options=[
+                            "flip",
+                            "sync",
+                            "button",
+                        ],
+                        entity_category=EntityCategory.CONFIG,
+                    ),
+                    dp_type=TuyaBLEDataPointType.DT_ENUM,
+                ),
+            ],
+        },
+    ),
 }
 
 
@@ -273,7 +309,7 @@ def get_mapping_by_device(
         return []
 
 
-class TuyaBLESelect(TuyaBLEEntity, SelectEntity):
+class TuyaBLESelect(TuyaBLEEntity, SelectEntity, RestoreEntity):
     """Representation of a Tuya BLE select."""
 
     def __init__(
@@ -306,6 +342,8 @@ class TuyaBLESelect(TuyaBLEEntity, SelectEntity):
                 return self._attr_options[value]
             else:
                 return value
+        if self._restored_state in self._attr_options:
+            return self._restored_state
         return None
 
     def select_option(self, value: str) -> None:

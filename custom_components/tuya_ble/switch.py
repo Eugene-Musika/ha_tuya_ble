@@ -14,6 +14,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import DOMAIN
@@ -368,6 +369,20 @@ mapping: dict[str, TuyaBLECategorySwitchMapping] = {
             ],
         },
     ),
+    "tdq": TuyaBLECategorySwitchMapping(
+        products={
+            "vs4ksbpax2dwwm6a": [  # Mini Smart Switch
+                TuyaBLESwitchMapping(
+                    dp_id=1,
+                    description=SwitchEntityDescription(
+                        key="switch",
+                        name=None,
+                        entity_registry_enabled_default=True,
+                    ),
+                ),
+            ],
+        },
+    ),
 }
 
 
@@ -385,7 +400,7 @@ def get_mapping_by_device(device: TuyaBLEDevice) -> list[TuyaBLECategorySwitchMa
         return []
 
 
-class TuyaBLESwitch(TuyaBLEEntity, SwitchEntity):
+class TuyaBLESwitch(TuyaBLEEntity, SwitchEntity, RestoreEntity):
     """Representation of a Tuya BLE Switch."""
 
     def __init__(
@@ -420,6 +435,8 @@ class TuyaBLESwitch(TuyaBLEEntity, SwitchEntity):
                         return True
             else:
                 return bool(datapoint.value)
+        if self._restored_state is not None:
+            return self._restored_state == "on"
         return False
 
     def turn_on(self, **kwargs: Any) -> None:

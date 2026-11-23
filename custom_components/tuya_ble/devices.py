@@ -14,6 +14,7 @@ from homeassistant.helpers.entity import (
     generate_entity_id,
 )
 from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
@@ -28,6 +29,7 @@ from .tuya_ble import (
     TuyaBLEDataPoint,
     TuyaBLEDevice,
     TuyaBLEDeviceCredentials,
+    decode_advertisement_uuid,
 )
 
 from .cloud import HASSTuyaBLEDeviceManager
@@ -65,6 +67,13 @@ class TuyaBLEProductInfo:
     manufacturer: str = DEVICE_DEF_MANUFACTURER
     fingerbot: TuyaBLEFingerbotInfo | None = None
     lock: TuyaBLELockInfo | None = None
+    # Some firmwares answer the status request with only part of their DPs.
+    # If state_probe_dp is not reported after connecting, state_refresh_dp is
+    # rewritten with its current value, which makes the device report all DPs.
+    state_probe_dp: int | None = None
+    state_refresh_dp: int | None = None
+    # Show the last known state (needs RestoreEntity) until the DP is reported.
+    restore_state: bool = False
 
 
 class TuyaBLEEntity(PassiveBluetoothCoordinatorEntity):
@@ -83,15 +92,26 @@ class TuyaBLEEntity(PassiveBluetoothCoordinatorEntity):
         self._coordinator = coordinator
         self._device = device
         self._product = product
-        if description.translation_key is None:
+        if description.name is None:
+            # Explicit name=None marks the device's main entity (uses device name).
+            self._attr_name = None
+        elif description.translation_key is None:
             self._attr_translation_key = description.key
         self.entity_description = description
         self._attr_has_entity_name = True
         self._attr_device_info = get_device_info(self._device)
         self._attr_unique_id = f"{self._device.device_id}-{description.key}"
+        self._restored_state: str | None = None
         self.entity_id = generate_entity_id(
             "sensor.{}", self._attr_unique_id, hass=hass
         )
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if self._product.restore_state and isinstance(self, RestoreEntity):
+            last_state = await self.async_get_last_state()
+            if last_state and last_state.state not in ("unknown", "unavailable"):
+                self._restored_state = last_state.state
 
     @property
     def available(self) -> bool:
@@ -221,6 +241,8 @@ class TuyaBLEPassiveCoordinator(PassiveBluetoothDataUpdateCoordinator):
         self._device = device
         self._disconnected: bool = True
         self._unsub_disconnect: CALLBACK_TYPE | None = None
+        self._full_state_received: bool = False
+        self._full_state_requested: bool = False
         device.register_connected_callback(self._async_handle_connect)
         device.register_callback(self._async_handle_update)
         device.register_disconnected_callback(self._async_handle_disconnect)
@@ -242,6 +264,8 @@ class TuyaBLEPassiveCoordinator(PassiveBluetoothDataUpdateCoordinator):
         self._async_handle_connect()
         self.async_update_listeners()
         info = get_device_product_info(self._device)
+        if info:
+            self._request_full_state_if_needed(info, updates)
         if info and info.fingerbot and info.fingerbot.manual_control != 0:
             for update in updates:
                 if update.id == info.fingerbot.switch and update.changed_by_device:
@@ -297,6 +321,31 @@ class TuyaBLEPassiveCoordinator(PassiveBluetoothDataUpdateCoordinator):
                         )
 
     @callback
+    def _request_full_state_if_needed(
+        self, info: TuyaBLEProductInfo, updates: list[TuyaBLEDataPoint]
+    ) -> None:
+        if info.state_probe_dp is None or info.state_refresh_dp is None:
+            return
+        if self._full_state_received:
+            return
+        if any(update.id == info.state_probe_dp for update in updates):
+            self._full_state_received = True
+            return
+        if self._full_state_requested:
+            return
+        datapoint = self._device.datapoints[info.state_refresh_dp]
+        if datapoint is None:
+            return
+        self._full_state_requested = True
+        self.logger.debug(
+            "%s: DP %s missing from status, rewriting DP %s to get full state",
+            self._device.address,
+            info.state_probe_dp,
+            info.state_refresh_dp,
+        )
+        self.hass.async_create_task(datapoint.set_value(datapoint.value))
+
+    @callback
     def _set_disconnected(self, _: "datetime.datetime") -> None:
         self._disconnected = True
         self._unsub_disconnect = None
@@ -304,6 +353,8 @@ class TuyaBLEPassiveCoordinator(PassiveBluetoothDataUpdateCoordinator):
 
     @callback
     def _async_handle_disconnect(self) -> None:
+        self._full_state_received = False
+        self._full_state_requested = False
         if self._unsub_disconnect is None:
             delay: float = SET_DISCONNECTED_DELAY
             self._unsub_disconnect = async_call_later(
@@ -470,6 +521,16 @@ devices_database: dict[str, TuyaBLECategoryInfo] = {
             ),
         },
     ),
+    "tdq": TuyaBLECategoryInfo(
+        products={
+            "vs4ksbpax2dwwm6a": TuyaBLEProductInfo(  # device product_id
+                name="Mini Smart Switch",
+                state_probe_dp=1,
+                state_refresh_dp=47,
+                restore_state=True,
+            ),
+        },
+    ),
 }
 
 
@@ -495,6 +556,21 @@ def get_short_address(address: str) -> str:
     return f"{results[-3]}{results[-2]}{results[-1]}"[-6:]
 
 
+def get_advertised_uuid(discovery_info: BluetoothServiceInfoBleak) -> str | None:
+    uuid = decode_advertisement_uuid(
+        discovery_info.service_data,
+        discovery_info.manufacturer_data,
+    )
+    if uuid is None:
+        _LOGGER.debug(
+            "Cannot decode uuid of %s; service_data: %s; manufacturer_data: %s",
+            discovery_info.address,
+            {k: v.hex() for k, v in (discovery_info.service_data or {}).items()},
+            {k: v.hex() for k, v in (discovery_info.manufacturer_data or {}).items()},
+        )
+    return uuid
+
+
 async def get_device_readable_name(
     discovery_info: BluetoothServiceInfoBleak,
     manager: AbstaractTuyaBLEDeviceManager | None,
@@ -502,7 +578,10 @@ async def get_device_readable_name(
     credentials: TuyaBLEDeviceCredentials | None = None
     product_info: TuyaBLEProductInfo | None = None
     if manager:
-        credentials = await manager.get_device_credentials(discovery_info.address)
+        credentials = await manager.get_device_credentials(
+            discovery_info.address,
+            uuid=get_advertised_uuid(discovery_info),
+        )
         if credentials:
             product_info = get_product_info_by_ids(
                 credentials.category,

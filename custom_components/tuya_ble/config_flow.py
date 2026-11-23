@@ -43,7 +43,7 @@ from .const import (
     TUYA_RESPONSE_MSG,
     TUYA_RESPONSE_SUCCESS,
 )
-from .devices import TuyaBLEData, get_device_readable_name
+from .devices import TuyaBLEData, get_advertised_uuid, get_device_readable_name
 from .cloud import HASSTuyaBLEDeviceManager
 
 _LOGGER = logging.getLogger(__name__)
@@ -270,6 +270,7 @@ class TuyaBLEConfigFlow(ConfigFlow, domain=DOMAIN):
                     self._discovery_info.address,
                     False,
                     True,
+                    uuid=get_advertised_uuid(self._discovery_info),
                 )
             if self._data is None or len(self._data) == 0:
                 self._manager.get_login_from_cache()
@@ -293,7 +294,10 @@ class TuyaBLEConfigFlow(ConfigFlow, domain=DOMAIN):
             )
             self._abort_if_unique_id_configured()
             credentials = await self._manager.get_device_credentials(
-                discovery_info.address, self._get_device_info_error, True
+                discovery_info.address,
+                self._get_device_info_error,
+                True,
+                uuid=get_advertised_uuid(discovery_info),
             )
             self._data[CONF_ADDRESS] = discovery_info.address
             if credentials is None:
