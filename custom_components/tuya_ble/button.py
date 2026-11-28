@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import base64
+import binascii
 import logging
 from typing import Callable
 
@@ -13,6 +14,7 @@ from homeassistant.components.button import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.components.bluetooth.passive_update_coordinator import PassiveBluetoothDataUpdateCoordinator
 
@@ -151,32 +153,36 @@ class TuyaBLEButton(TuyaBLEEntity, ButtonEntity):
         super().__init__(hass, coordinator, device, product, mapping.description)
         self._mapping = mapping
 
-    def press(self) -> None:
+    async def async_press(self) -> None:
         """Press the button."""
-        if (
-            self._mapping.dp_type == TuyaBLEDataPointType.DT_RAW
-            and self._mapping.value is not None
-        ):
+        if self._mapping.dp_type == TuyaBLEDataPointType.DT_RAW:
+            if self._mapping.value is None:
+                raise HomeAssistantError("Raw button value is not configured")
             try:
-                raw_value = base64.b64decode(self._mapping.value)
-            except Exception as e:
-                _LOGGER.error("Failed to decode base64 value for button %s: %s", self._mapping.description.key, e)
-                return
+                raw_value = base64.b64decode(self._mapping.value, validate=True)
+            except (binascii.Error, ValueError) as err:
+                raise HomeAssistantError(
+                    f"Invalid base64 value for button {self._mapping.description.key}"
+                ) from err
             datapoint = self._device.datapoints.get_or_create(
                 self._mapping.dp_id,
                 TuyaBLEDataPointType.DT_RAW,
                 raw_value,
             )
-            if datapoint:
-                self._hass.create_task(datapoint.set_value(raw_value))
-        else:
+            if not datapoint:
+                raise HomeAssistantError("Button datapoint is unavailable")
+            await datapoint.set_value(raw_value)
+        elif self._mapping.dp_type in (None, TuyaBLEDataPointType.DT_BOOL):
             datapoint = self._device.datapoints.get_or_create(
                 self._mapping.dp_id,
                 TuyaBLEDataPointType.DT_BOOL,
                 False,
             )
-            if datapoint:
-                self._hass.create_task(datapoint.set_value(not bool(datapoint.value)))
+            if not datapoint:
+                raise HomeAssistantError("Button datapoint is unavailable")
+            await datapoint.set_value(not bool(datapoint.value))
+        else:
+            raise HomeAssistantError("Unsupported button datapoint type")
 
     @property
     def is_available(self) -> bool:

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import logging
 from struct import pack, unpack
-from typing import Callable
+from typing import Awaitable, Callable
 
 from homeassistant.components.text import (
     TextEntity,
@@ -13,6 +13,7 @@ from homeassistant.components.text import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.components.bluetooth.passive_update_coordinator import PassiveBluetoothDataUpdateCoordinator
@@ -41,7 +42,7 @@ TuyaBLETextIsAvailable = (
 
 
 TuyaBLETextSetter = (
-    Callable[["TuyaBLEText", TuyaBLEProductInfo, str], None] | None
+    Callable[["TuyaBLEText", TuyaBLEProductInfo, str], Awaitable[None]] | None
 )
 
 
@@ -81,23 +82,30 @@ def get_fingerbot_program(
     return result
 
 
-def set_fingerbot_program(
+async def set_fingerbot_program(
     self: TuyaBLEText,
     product: TuyaBLEProductInfo,
     value: str,
 ) -> None:
-    if product.fingerbot and product.fingerbot.program:
-        datapoint = self._device.datapoints[product.fingerbot.program]
-        if datapoint and type(datapoint.value) is bytes:
-            new_value = bytearray(datapoint.value[0:3])
-            steps = value.split(';')
-            new_value += int.to_bytes(len(steps), 1, "big")
-            for step in steps:
-                step_values = step.split('/')
-                position = int(step_values[0])
-                delay = int(step_values[1]) if len(step_values) > 1 else 0
-                new_value += pack(">BH", position, delay)
-            self._hass.create_task(datapoint.set_value(new_value))
+    if not product.fingerbot or not product.fingerbot.program:
+        raise HomeAssistantError("Fingerbot program datapoint is not configured")
+    datapoint = self._device.datapoints[product.fingerbot.program]
+    if (
+        not datapoint
+        or type(datapoint.value) is not bytes
+        or len(datapoint.value) < 4
+        or len(datapoint.value) < 4 + 3 * datapoint.value[3]
+    ):
+        raise HomeAssistantError("Fingerbot program datapoint is unavailable or malformed")
+    new_value = bytearray(datapoint.value[0:3])
+    steps = value.split(';')
+    new_value += int.to_bytes(len(steps), 1, "big")
+    for step in steps:
+        step_values = step.split('/')
+        position = int(step_values[0])
+        delay = int(step_values[1]) if len(step_values) > 1 else 0
+        new_value += pack(">BH", position, delay)
+    await datapoint.set_value(new_value)
 
 
 @dataclass
@@ -108,8 +116,8 @@ class TuyaBLETextMapping:
     dp_type: TuyaBLEDataPointType | None = None
     default_value: str | None = None
     is_available: TuyaBLETextIsAvailable = None
-    getter: Callable[[TuyaBLEText], None] | None = None
-    setter: Callable[[TuyaBLEText], None] | None = None
+    getter: TuyaBLETextGetter = None
+    setter: TuyaBLETextSetter = None
 
 
 @dataclass
@@ -188,18 +196,19 @@ class TuyaBLEText(TuyaBLEEntity, TextEntity):
 
         return self._mapping.description.default_value
 
-    def set_value(self, value: str) -> None:
+    async def async_set_value(self, value: str) -> None:
         """Change the value."""
         if self._mapping.setter:
-            self._mapping.setter(self, self._product, value)
+            await self._mapping.setter(self, self._product, value)
             return
         datapoint = self._device.datapoints.get_or_create(
             self._mapping.dp_id,
             TuyaBLEDataPointType.DT_STRING,
             value,
         )
-        if datapoint:
-            self._hass.create_task(datapoint.set_value(value))
+        if not datapoint:
+            raise HomeAssistantError("Text datapoint is unavailable")
+        await datapoint.set_value(value)
 
 
 async def async_setup_entry(

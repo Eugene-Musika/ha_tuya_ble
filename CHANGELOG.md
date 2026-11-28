@@ -128,3 +128,13 @@ and this project adheres to [Semantic Versioning].
 
 - Back up Home Assistant before upgrading. Downgrading is not supported;
   restore the backup to return to an earlier version.
+
+## [1.0.1]
+
+### Fixed
+
+- Failed Bluetooth connection cycles now retry automatically with increasing
+  delays, reducing repeated attempts and log noise. The Bluetooth connector may
+  still retry internally within a cycle.
+- Failed device commands are reported instead of appearing successful, and
+  unconfirmed writes no longer overwrite known device state.

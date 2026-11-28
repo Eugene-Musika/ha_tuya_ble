@@ -12,6 +12,7 @@ from homeassistant.components.select import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -351,17 +352,19 @@ class TuyaBLESelect(TuyaBLEEntity, SelectEntity, RestoreEntity):
             return self._restored_state
         return None
 
-    def select_option(self, value: str) -> None:
+    async def async_select_option(self, value: str) -> None:
         """Change the selected option."""
-        if value in self._attr_options:
-            int_value = self._attr_options.index(value)
-            datapoint = self._device.datapoints.get_or_create(
-                self._mapping.dp_id,
-                TuyaBLEDataPointType.DT_ENUM,
-                int_value,
-            )
-            if datapoint:
-                self._hass.create_task(datapoint.set_value(int_value))
+        if value not in self._attr_options:
+            raise HomeAssistantError(f"Unsupported option: {value}")
+        int_value = self._attr_options.index(value)
+        datapoint = self._device.datapoints.get_or_create(
+            self._mapping.dp_id,
+            TuyaBLEDataPointType.DT_ENUM,
+            int_value,
+        )
+        if not datapoint:
+            raise HomeAssistantError("Select datapoint is unavailable")
+        await datapoint.set_value(int_value)
 
 
 async def async_setup_entry(

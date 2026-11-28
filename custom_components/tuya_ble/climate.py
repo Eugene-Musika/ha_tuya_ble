@@ -20,6 +20,7 @@ from homeassistant.components.climate.const import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
@@ -261,6 +262,8 @@ class TuyaBLEClimate(TuyaBLEEntity, ClimateEntity):
 
     async def async_set_temperature(self, **kwargs) -> None:
         """Set new target temperature."""
+        if not self._mapping.target_temperature_dp_id:
+            raise HomeAssistantError("Target temperature is not supported")
         if self._mapping.target_temperature_dp_id != 0:
             int_value = int(
                 kwargs["temperature"] * self._mapping.target_temperature_coefficient
@@ -270,11 +273,14 @@ class TuyaBLEClimate(TuyaBLEEntity, ClimateEntity):
                 TuyaBLEDataPointType.DT_VALUE,
                 int_value,
             )
-            if datapoint:
-                self._hass.create_task(datapoint.set_value(int_value))
+            if not datapoint:
+                raise HomeAssistantError("Target temperature datapoint is unavailable")
+            await datapoint.set_value(int_value)
 
     async def async_set_humidity(self, humidity: int) -> None:
         """Set new target humidity."""
+        if not self._mapping.target_humidity_dp_id:
+            raise HomeAssistantError("Target humidity is not supported")
         if self._mapping.target_humidity_dp_id != 0:
             int_value = int(humidity * self._mapping.target_humidity_coefficient)
             datapoint = self._device.datapoints.get_or_create(
@@ -282,8 +288,9 @@ class TuyaBLEClimate(TuyaBLEEntity, ClimateEntity):
                 TuyaBLEDataPointType.DT_VALUE,
                 int_value,
             )
-            if datapoint:
-                self._hass.create_task(datapoint.set_value(int_value))
+            if not datapoint:
+                raise HomeAssistantError("Target humidity datapoint is unavailable")
+            await datapoint.set_value(int_value)
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set new target hvac mode."""
@@ -292,26 +299,40 @@ class TuyaBLEClimate(TuyaBLEEntity, ClimateEntity):
             and self._mapping.hvac_modes
             and hvac_mode in self._mapping.hvac_modes
         ):
+            if not self._mapping.target_humidity_dp_id:
+                raise HomeAssistantError("HVAC mode command datapoint is not configured")
             int_value = self._mapping.hvac_modes.index(hvac_mode)
             datapoint = self._device.datapoints.get_or_create(
                 self._mapping.target_humidity_dp_id,
                 TuyaBLEDataPointType.DT_VALUE,
                 int_value,
             )
-            if datapoint:
-                self._hass.create_task(datapoint.set_value(int_value))
+            if not datapoint:
+                raise HomeAssistantError("HVAC mode datapoint is unavailable")
+            await datapoint.set_value(int_value)
         elif self._mapping.hvac_switch_dp_id != 0 and self._mapping.hvac_switch_mode:
+            if hvac_mode not in (HVACMode.OFF, self._mapping.hvac_switch_mode):
+                raise HomeAssistantError(f"Unsupported HVAC mode: {hvac_mode}")
             bool_value = hvac_mode == self._mapping.hvac_switch_mode
             datapoint = self._device.datapoints.get_or_create(
                 self._mapping.hvac_switch_dp_id,
                 TuyaBLEDataPointType.DT_BOOL,
                 bool_value,
             )
-            if datapoint:
-                self._hass.create_task(datapoint.set_value(bool_value))
+            if not datapoint:
+                raise HomeAssistantError("HVAC switch datapoint is unavailable")
+            await datapoint.set_value(bool_value)
+        else:
+            raise HomeAssistantError(f"Unsupported HVAC mode: {hvac_mode}")
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set new preset mode."""
+        if not self._mapping.preset_mode_dp_ids:
+            raise HomeAssistantError("Preset mode is not supported")
+        if preset_mode not in self._mapping.preset_mode_dp_ids:
+            raise HomeAssistantError(f"Unsupported preset mode: {preset_mode}")
+        if any(not dp_id for dp_id in self._mapping.preset_mode_dp_ids.values()):
+            raise HomeAssistantError("Preset mode datapoint is not configured")
         if self._mapping.preset_mode_dp_ids:
             datapoint: TuyaBLEDataPoint | None = None
             bool_value = False
@@ -342,8 +363,11 @@ class TuyaBLEClimate(TuyaBLEEntity, ClimateEntity):
                             TuyaBLEDataPointType.DT_BOOL,
                             bool_value,
                         )
-            if datapoint:
-                self._hass.create_task(datapoint.set_value(bool_value))
+                        if not datapoint:
+                            raise HomeAssistantError("Preset mode datapoint is unavailable")
+            if not datapoint:
+                raise HomeAssistantError("Preset mode datapoint is unavailable")
+            await datapoint.set_value(bool_value)
 
 
 async def async_setup_entry(
