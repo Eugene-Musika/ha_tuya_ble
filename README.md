@@ -36,6 +36,13 @@ remain unchanged and an error is logged. Resolve the conflict and restart Home
 Assistant to retry. Downgrading is not supported; restore the backup to return
 to an earlier version.
 
+### Bluetooth connection problems
+
+The integration retries failed connections automatically, with increasing delays
+between connection cycles (up to 60 seconds). The Bluetooth connector can also
+make retries within a cycle. If errors persist, check the device's power and
+Bluetooth range, and review the Home Assistant logs for the device's address.
+
 ## Supported devices list
 
 * Fingerbots (category_id 'szjqr')

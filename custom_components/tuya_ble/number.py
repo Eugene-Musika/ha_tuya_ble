@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import logging
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from homeassistant.components.number import (
     NumberEntityDescription,
@@ -20,6 +20,7 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -47,7 +48,7 @@ TuyaBLENumberIsAvailable = (
 
 
 TuyaBLENumberSetter = (
-    Callable[["TuyaBLENumber", TuyaBLEProductInfo, float], None] | None
+    Callable[["TuyaBLENumber", TuyaBLEProductInfo, float], Awaitable[None]] | None
 )
 
 
@@ -132,19 +133,26 @@ def get_fingerbot_program_repeat_count(
     return result
 
 
-def set_fingerbot_program_repeat_count(
+async def set_fingerbot_program_repeat_count(
     self: TuyaBLENumber,
     product: TuyaBLEProductInfo,
     value: float,
 ) -> None:
-    if product.fingerbot and product.fingerbot.program:
-        datapoint = self._device.datapoints[product.fingerbot.program]
-        if datapoint and type(datapoint.value) is bytes:
-            new_value = (
-                int.to_bytes(int(value), 2, "big") +
-                datapoint.value[2:]
-            )
-            self._hass.create_task(datapoint.set_value(new_value))
+    if not product.fingerbot or not product.fingerbot.program:
+        raise HomeAssistantError("Fingerbot program datapoint is not configured")
+    datapoint = self._device.datapoints[product.fingerbot.program]
+    if (
+        not datapoint
+        or type(datapoint.value) is not bytes
+        or len(datapoint.value) < 4
+        or len(datapoint.value) < 4 + 3 * datapoint.value[3]
+    ):
+        raise HomeAssistantError("Fingerbot program datapoint is unavailable or malformed")
+    new_value = (
+        int.to_bytes(int(value), 2, "big") +
+        datapoint.value[2:]
+    )
+    await datapoint.set_value(new_value)
 
 
 def get_fingerbot_program_position(
@@ -160,17 +168,24 @@ def get_fingerbot_program_position(
     return result
 
 
-def set_fingerbot_program_position(
+async def set_fingerbot_program_position(
     self: TuyaBLENumber,
     product: TuyaBLEProductInfo,
     value: float,
 ) -> None:
-    if product.fingerbot and product.fingerbot.program:
-        datapoint = self._device.datapoints[product.fingerbot.program]
-        if datapoint and type(datapoint.value) is bytes:
-            new_value = bytearray(datapoint.value)
-            new_value[2] = int(value)
-            self._hass.create_task(datapoint.set_value(new_value))
+    if not product.fingerbot or not product.fingerbot.program:
+        raise HomeAssistantError("Fingerbot program datapoint is not configured")
+    datapoint = self._device.datapoints[product.fingerbot.program]
+    if (
+        not datapoint
+        or type(datapoint.value) is not bytes
+        or len(datapoint.value) < 4
+        or len(datapoint.value) < 4 + 3 * datapoint.value[3]
+    ):
+        raise HomeAssistantError("Fingerbot program datapoint is unavailable or malformed")
+    new_value = bytearray(datapoint.value)
+    new_value[2] = int(value)
+    await datapoint.set_value(new_value)
 
 
 @dataclass
@@ -587,7 +602,7 @@ class TuyaBLENumber(TuyaBLEEntity, BaseNumberEntity, RestoreEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         if self._mapping.setter is not None:
-            self._mapping.setter(self, self._product, value)
+            await self._mapping.setter(self, self._product, value)
             return
         int_value = int(value * self._mapping.coefficient)
         datapoint = self._device.datapoints.get_or_create(
@@ -595,8 +610,9 @@ class TuyaBLENumber(TuyaBLEEntity, BaseNumberEntity, RestoreEntity):
             TuyaBLEDataPointType.DT_VALUE,
             int(int_value),
         )
-        if datapoint:
-            await datapoint.set_value(int_value)
+        if not datapoint:
+            raise HomeAssistantError("Number datapoint is unavailable")
+        await datapoint.set_value(int_value)
 
     # Свойство available не определяется, используется только базовое
     # ...existing code...

@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import logging
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from homeassistant.components.switch import (
     SwitchEntityDescription,
@@ -12,6 +12,7 @@ from homeassistant.components.switch import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -39,7 +40,7 @@ TuyaBLESwitchIsAvailable = (
 
 
 TuyaBLESwitchSetter = (
-    Callable[["TuyaBLESwitch", TuyaBLEProductInfo, bool], None] | None
+    Callable[["TuyaBLESwitch", TuyaBLEProductInfo, bool], Awaitable[None]] | None
 )
 
 
@@ -89,30 +90,34 @@ def get_fingerbot_program_repeat_forever(
     return result
 
 
-def set_fingerbot_program_repeat_forever(
+async def set_fingerbot_program_repeat_forever(
     self: TuyaBLESwitch, product: TuyaBLEProductInfo, value: bool
 ) -> None:
-    if product.fingerbot and product.fingerbot.program:
-        datapoint = self._device.datapoints[product.fingerbot.program]
-        if datapoint and type(datapoint.value) is bytes:
-            new_value = (
-                int.to_bytes(0xFFFF if value else 1, 2, "big") +
-                datapoint.value[2:]
-            )
-            self._hass.create_task(datapoint.set_value(new_value))
+    if not product.fingerbot or not product.fingerbot.program:
+        raise HomeAssistantError("Fingerbot program datapoint is not configured")
+    datapoint = self._device.datapoints[product.fingerbot.program]
+    if not datapoint or type(datapoint.value) is not bytes or len(datapoint.value) < 2:
+        raise HomeAssistantError("Fingerbot program datapoint is unavailable or invalid")
+    new_value = (
+        int.to_bytes(0xFFFF if value else 1, 2, "big") +
+        datapoint.value[2:]
+    )
+    await datapoint.set_value(new_value)
 
 # --- Кастомные getter/setter для замка ---
-def lock_switch_setter(self: TuyaBLESwitch, product: TuyaBLEProductInfo, value: bool) -> None:
+async def lock_switch_setter(self: TuyaBLESwitch, product: TuyaBLEProductInfo, value: bool) -> None:
     if value:
         import base64
         raw_value = base64.b64decode("AQE=")
         datapoint = self._device.datapoints.get_or_create(6, TuyaBLEDataPointType.DT_RAW, raw_value)
-        if datapoint:
-            self._hass.create_task(datapoint.set_value(raw_value))
+        if not datapoint:
+            raise HomeAssistantError("Lock unlock datapoint is unavailable")
+        await datapoint.set_value(raw_value)
     else:
         datapoint = self._device.datapoints.get_or_create(46, TuyaBLEDataPointType.DT_BOOL, False)
-        if datapoint:
-            self._hass.create_task(datapoint.set_value(True))
+        if not datapoint:
+            raise HomeAssistantError("Lock datapoint is unavailable")
+        await datapoint.set_value(True)
 
 
 @dataclass
@@ -443,10 +448,11 @@ class TuyaBLESwitch(TuyaBLEEntity, SwitchEntity, RestoreEntity):
             return self._restored_state == "on"
         return False
 
-    def turn_on(self, **kwargs: Any) -> None:
+    async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
         if self._mapping.setter:
-            return self._mapping.setter(self, self._product, True)
+            await self._mapping.setter(self, self._product, True)
+            return
 
         new_value: bool | bytes
         if self._mapping.bitmap_mask:
@@ -455,6 +461,8 @@ class TuyaBLESwitch(TuyaBLEEntity, SwitchEntity, RestoreEntity):
                 TuyaBLEDataPointType.DT_BITMAP,
                 self._mapping.bitmap_mask,
             )
+            if not datapoint:
+                raise HomeAssistantError("Switch datapoint is unavailable")
             bitmap_mask = self._mapping.bitmap_mask
             bitmap_value = bytes(datapoint.value)
             new_value = bytes(
@@ -467,13 +475,15 @@ class TuyaBLESwitch(TuyaBLEEntity, SwitchEntity, RestoreEntity):
                 True,
             )
             new_value = True
-        if datapoint:
-            self._hass.create_task(datapoint.set_value(new_value))
+        if not datapoint:
+            raise HomeAssistantError("Switch datapoint is unavailable")
+        await datapoint.set_value(new_value)
 
-    def turn_off(self, **kwargs: Any) -> None:
+    async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
         if self._mapping.setter:
-            return self._mapping.setter(self, self._product, False)
+            await self._mapping.setter(self, self._product, False)
+            return
 
         new_value: bool | bytes
         if self._mapping.bitmap_mask:
@@ -482,6 +492,8 @@ class TuyaBLESwitch(TuyaBLEEntity, SwitchEntity, RestoreEntity):
                 TuyaBLEDataPointType.DT_BITMAP,
                 self._mapping.bitmap_mask,
             )
+            if not datapoint:
+                raise HomeAssistantError("Switch datapoint is unavailable")
             bitmap_mask = self._mapping.bitmap_mask
             bitmap_value = bytes(datapoint.value)
             new_value = bytes(
@@ -494,8 +506,9 @@ class TuyaBLESwitch(TuyaBLEEntity, SwitchEntity, RestoreEntity):
                 False,
             )
             new_value = False
-        if datapoint:
-            self._hass.create_task(datapoint.set_value(new_value))
+        if not datapoint:
+            raise HomeAssistantError("Switch datapoint is unavailable")
+        await datapoint.set_value(new_value)
 
     @property
     def available(self) -> bool:
